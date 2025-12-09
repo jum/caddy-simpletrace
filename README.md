@@ -80,10 +80,10 @@ example.com {
 This will:
 
 1. Parse or generate trace IDs
-1. Add trace context to logs in standard format
+1. Add trace context to logs in OpenTelemetry format (default)
 1. Propagate `traceparent` headers to backend
 
-**Log output:**
+**Log output (OpenTelemetry format - default):**
 
 ```json
 {
@@ -96,6 +96,44 @@ This will:
 }
 ```
 
+### Supported Log Formats
+
+SimpleTrace supports multiple log format conventions to integrate with different observability platforms:
+
+#### OpenTelemetry (default)
+
+```caddyfile
+simpletrace {
+    format otel
+}
+```
+
+**Fields:** `trace_id`, `span_id`, `trace_sampled`, `parent_span_id`
+
+**Compatible with:** OpenTelemetry Collector, Jaeger, Grafana Tempo, most modern observability tools
+
+#### Grafana Tempo
+
+```caddyfile
+simpletrace {
+    format tempo
+}
+```
+
+**Fields:** `traceID`, `spanID`, `traceSampled`, `parentSpanID` (camelCase)
+
+**Log output:**
+
+```json
+{
+  "traceID": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "spanID": "00f067aa0ba902b7",
+  "traceSampled": true
+}
+```
+
+**Compatible with:** Grafana Tempo, Grafana Loki with Tempo integration
+
 ### Google Cloud Logging (Stackdriver) Format
 
 ```caddyfile
@@ -105,11 +143,32 @@ This will:
 
 example.com {
     simpletrace {
-        stackdriver your-gcp-project-id
+        format stackdriver
+        project_id your-gcp-project-id
     }
     reverse_proxy backend:8080
 }
 ```
+
+**Using environment variables:**
+
+```caddyfile
+simpletrace {
+    format stackdriver
+    project_id {env.GOOGLE_CLOUD_PROJECT}
+}
+```
+
+**Auto-detect from environment (default):**
+
+```caddyfile
+simpletrace {
+    format stackdriver
+    # project_id automatically defaults to {env.GOOGLE_CLOUD_PROJECT}
+}
+```
+
+When `project_id` is omitted and format is `stackdriver` or `gcp`, the plugin automatically uses the `GOOGLE_CLOUD_PROJECT` environment variable, which is the canonical environment variable set by Google Cloud Platform in Cloud Run, GKE, App Engine, and other services.
 
 **Log output:**
 
@@ -130,32 +189,98 @@ Benefits with Stackdriver format:
 - Integration with Cloud Trace (for sampled traces)
 - Clickable trace links in GCP Console
 
-## Configuration Options
-
-### Standard Format
+#### Elastic Common Schema (ECS)
 
 ```caddyfile
-simpletrace
+simpletrace {
+    format ecs
+}
 ```
 
-Adds these fields to logs:
+**Fields:** `trace.id`, `span.id`, `trace.sampled`, `span.parent_id` (dot notation)
+
+**Log output:**
+
+```json
+{
+  "trace.id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span.id": "00f067aa0ba902b7",
+  "trace.sampled": true
+}
+```
+
+**Compatible with:** Elasticsearch, Kibana, Elastic APM
+
+#### Datadog
+
+```caddyfile
+simpletrace {
+    format datadog
+}
+```
+
+**Aliases:** `dd`
+
+**Fields:** `dd.trace_id`, `dd.span_id`, `dd.sampled`, `dd.parent_id`
+
+**Log output:**
+
+```json
+{
+  "dd.trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "dd.span_id": "00f067aa0ba902b7",
+  "dd.sampled": true
+}
+```
+
+**Compatible with:** Datadog APM
+
+## Configuration Options
+
+### Format Options
+
+```caddyfile
+simpletrace {
+    format <format-name>
+    project_id <gcp-project-id>  # Only for stackdriver/gcp format
+}
+```
+
+**Available formats:**
+
+- `otel` (default) - OpenTelemetry semantic conventions
+- `tempo` - Grafana Tempo camelCase format
+- `stackdriver` or `gcp` - Google Cloud Logging format
+- `ecs` - Elastic Common Schema
+- `datadog` or `dd` - Datadog APM format
+
+### Standard Format Fields
+
+**OpenTelemetry (default):**
 
 - `trace_id` - 32-character hex trace identifier
 - `span_id` - 16-character hex span identifier
 - `trace_sampled` - boolean indicating if trace should be recorded
 - `parent_span_id` - (optional) parent span ID from incoming request
 
-### Stackdriver Format
+**Tempo:**
 
-```caddyfile
-simpletrace {
-    stackdriver <project-id>
-}
-```
+- `traceID`, `spanID`, `traceSampled`, `parentSpanID` (camelCase variants)
 
-**Parameters:**
+**Stackdriver:**
 
-- `project-id` (optional) - Your GCP project ID. When provided, trace field includes full resource path: `projects/{project-id}/traces/{trace-id}`
+- `logging.googleapis.com/trace` - Full trace resource path (when project_id provided)
+- `logging.googleapis.com/spanId` - Span identifier
+- `logging.googleapis.com/trace_sampled` - Sampling flag
+- `parent_span_id` - (optional) parent span ID
+
+**ECS:**
+
+- `trace.id`, `span.id`, `trace.sampled`, `span.parent_id` (dot notation)
+
+**Datadog:**
+
+- `dd.trace_id`, `dd.span_id`, `dd.sampled`, `dd.parent_id` (dd prefix)
 
 ## How It Works
 
@@ -214,7 +339,7 @@ When using Google Cloud Logging, the `trace_sampled` field controls whether trac
 
 (common) {
     simpletrace {
-        stackdriver my-project
+        format tempo
     }
     encode gzip
 }
@@ -240,7 +365,8 @@ api.example.com {
 # Frontend service
 frontend.example.com {
     simpletrace {
-        stackdriver my-project
+        format stackdriver
+        project_id my-project
     }
     reverse_proxy frontend-app:3000
 }
@@ -248,7 +374,8 @@ frontend.example.com {
 # API service
 api.example.com {
     simpletrace {
-        stackdriver my-project
+        format stackdriver
+        project_id my-project
     }
     reverse_proxy api-app:8080
 }
@@ -282,7 +409,8 @@ localhost:8080 {
 
 example.com {
     simpletrace {
-        stackdriver production-project-123
+        format stackdriver
+        project_id production-project-123
     }
     
     log {
@@ -293,6 +421,29 @@ example.com {
     reverse_proxy backend:8080
 }
 ```
+
+### Grafana Loki + Tempo Setup
+
+```caddyfile
+{
+    order simpletrace before rewrite
+}
+
+example.com {
+    simpletrace {
+        format tempo
+    }
+    
+    log {
+        output stdout
+        format json
+    }
+    
+    reverse_proxy backend:8080
+}
+```
+
+With this configuration, logs sent to Loki will automatically link to traces in Tempo when both use the same trace IDs.
 
 When running on Google Cloud (GKE, Cloud Run, etc.), logs are automatically ingested by Cloud Logging and traces are correlated.
 
