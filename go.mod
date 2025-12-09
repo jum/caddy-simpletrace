@@ -1,4 +1,4 @@
-module github.com/jum/simpletrace
+module github.com/jum/caddy-simpletrace
 
 go 1.25
 
