@@ -43,9 +43,34 @@ COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
 ## Usage
 
+### Handler Ordering
+
+Before using `simpletrace`, you must define its position in Caddy’s middleware chain using the global `order` directive:
+
+```caddyfile
+{
+    order simpletrace before rewrite
+}
+
+example.com {
+    simpletrace
+    reverse_proxy backend:8080
+}
+```
+
+**Recommended positions:**
+
+- `order simpletrace first` - Run before all other handlers (captures everything)
+- `order simpletrace before rewrite` - Run early, before URL modifications
+- `order simpletrace before reverse_proxy` - Run just before proxying requests
+
 ### Basic Configuration
 
 ```caddyfile
+{
+    order simpletrace before rewrite
+}
+
 example.com {
     simpletrace
     reverse_proxy backend:8080
@@ -74,6 +99,10 @@ This will:
 ### Google Cloud Logging (Stackdriver) Format
 
 ```caddyfile
+{
+    order simpletrace before rewrite
+}
+
 example.com {
     simpletrace {
         stackdriver your-gcp-project-id
@@ -176,9 +205,38 @@ When using Google Cloud Logging, the `trace_sampled` field controls whether trac
 
 ## Example Configurations
 
+### Using with Snippets
+
+```caddyfile
+{
+    order simpletrace before rewrite
+}
+
+(common) {
+    simpletrace {
+        stackdriver my-project
+    }
+    encode gzip
+}
+
+example.com {
+    import common
+    reverse_proxy frontend:3000
+}
+
+api.example.com {
+    import common
+    reverse_proxy api:8080
+}
+```
+
 ### Multi-service Setup
 
 ```caddyfile
+{
+    order simpletrace before rewrite
+}
+
 # Frontend service
 frontend.example.com {
     simpletrace {
@@ -201,6 +259,10 @@ All services in your architecture can use SimpleTrace to maintain trace context 
 ### Development Setup
 
 ```caddyfile
+{
+    order simpletrace before rewrite
+}
+
 localhost:8080 {
     simpletrace
     log {
@@ -214,6 +276,10 @@ localhost:8080 {
 ### Production with Cloud Logging
 
 ```caddyfile
+{
+    order simpletrace before rewrite
+}
+
 example.com {
     simpletrace {
         stackdriver production-project-123
@@ -246,6 +312,18 @@ When running on Google Cloud (GKE, Cloud Run, etc.), logs are automatically inge
 Use SimpleTrace when you only need trace context in logs. Use the built-in `tracing` directive when you need full distributed tracing with span export to collectors like Jaeger, Zipkin, or Cloud Trace.
 
 ## Troubleshooting
+
+### “directive ‘simpletrace’ is not an ordered HTTP handler” error
+
+Add the `order` directive to your global options:
+
+```caddyfile
+{
+    order simpletrace before rewrite
+}
+```
+
+This is required when using `simpletrace` in snippets or when Caddy cannot automatically determine the handler order.
 
 ### Logs don’t include trace fields
 
